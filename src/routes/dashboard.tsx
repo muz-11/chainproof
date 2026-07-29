@@ -41,6 +41,20 @@ const getDashboardData = createServerFn({ method: "GET" }).handler(async () => {
     WHERE "organizationId" = ${session.organizationId}
   `;
 
+  // Compute real response rate from campaign data
+  const campaignStats = await db`
+    SELECT
+      COUNT(cs."id")::int as "totalSent",
+      COUNT(cs."id") FILTER (WHERE cs."status" = 'responded')::int as "totalResponded"
+    FROM "CampaignSupplier" cs
+    JOIN "Campaign" c ON c."id" = cs."campaignId"
+    WHERE c."organizationId" = ${session.organizationId}
+  `;
+
+  const totalSent = campaignStats[0].totalSent as number;
+  const totalResponded = campaignStats[0].totalResponded as number;
+  const responseRate = totalSent > 0 ? Math.round((totalResponded / totalSent) * 100) : 0;
+
   return {
     email: user.email as string,
     name: user.name as string | null,
@@ -49,7 +63,7 @@ const getDashboardData = createServerFn({ method: "GET" }).handler(async () => {
     filingDeadline: String(user.filingDeadline as Date),
     totalSuppliers: counts[0].totalSuppliers as number,
     flaggedSuppliers: counts[0].flaggedSuppliers as number,
-    responseRate: 0,
+    responseRate,
   };
 });
 

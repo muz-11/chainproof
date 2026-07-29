@@ -5,6 +5,7 @@ import { verifySessionToken } from "~/auth";
 import { sql } from "~/db";
 import { useState } from "react";
 import { logout } from "~/server-fns/auth";
+import { createCampaign, sendCampaignEmails } from "~/server-fns/campaigns";
 
 const getSuppliersData = createServerFn({ method: "GET" }).handler(async () => {
   const token = getCookie("chainproof_session");
@@ -26,11 +27,22 @@ const getSuppliersData = createServerFn({ method: "GET" }).handler(async () => {
     WHERE u.id = ${session.userId}
   `;
 
+  // Get suppliers with latest campaign status
   const suppliers = await db`
-    SELECT id, name, "contactEmail", country, "spendCategory", "riskLevel", "createdAt"
-    FROM "Supplier"
-    WHERE "organizationId" = ${session.organizationId}
-    ORDER BY "createdAt" DESC
+    SELECT
+      s.id, s.name, s."contactEmail", s.country, s."spendCategory", s."riskLevel", s."createdAt",
+      cs."status" as "campaignStatus"
+    FROM "Supplier" s
+    LEFT JOIN LATERAL (
+      SELECT cs2."status"
+      FROM "CampaignSupplier" cs2
+      JOIN "Campaign" c2 ON c2."id" = cs2."campaignId"
+      WHERE cs2."supplierId" = s."id" AND c2."organizationId" = ${session.organizationId}
+      ORDER BY cs2."createdAt" DESC
+      LIMIT 1
+    ) cs ON true
+    WHERE s."organizationId" = ${session.organizationId}
+    ORDER BY s."createdAt" DESC
   `;
 
   return {
@@ -45,6 +57,7 @@ const getSuppliersData = createServerFn({ method: "GET" }).handler(async () => {
       spendCategory: (s.spendCategory as string) || "—",
       riskLevel: s.riskLevel as string,
       createdAt: String(s.createdAt as Date),
+      campaignStatus: (s.campaignStatus as string) || null,
     })),
   };
 });
@@ -59,6 +72,15 @@ function SuppliersPage() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [countryFilter, setCountryFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [creating, setCreating] = useState(false);
+  const [campaignResult, setCampaignResult] = useState<{
+    campaignId: string;
+    sent: number;
+    total: number;
+    errors: string[];
+  } | null>(null);
+  const [campaignError, setCampaignError] = useState<string | null>(null);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -81,6 +103,48 @@ function SuppliersPage() {
     return true;
   });
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((s) => s.id)));
+    }
+  };
+
+  async function handleCreateCampaign() {
+    if (selectedIds.size === 0) return;
+    setCreating(true);
+    setCampaignError(null);
+    setCampaignResult(null);
+
+    try {
+      const { campaignId } = await createCampaign({
+        data: { supplierIds: Array.from(selectedIds) },
+      });
+
+      // Immediately send emails
+      const sendResult = await sendCampaignEmails({ data: { campaignId } });
+      setCampaignResult({ campaignId, ...sendResult });
+      setSelectedIds(new Set());
+
+      // Reload to show updated statuses
+      window.location.reload();
+    } catch (e: any) {
+      setCampaignError(e?.message || "Failed to create campaign.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   const riskBadge = (level: string) => {
     const colors: Record<string, string> = {
       low: "bg-green-100 text-green-800",
@@ -92,6 +156,28 @@ function SuppliersPage() {
         className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[level] || "bg-gray-100 text-gray-800"}`}
       >
         {level}
+      </span>
+    );
+  };
+
+  const campaignStatusBadge = (status: string | null) => {
+    if (!status || status === "not_sent") {
+      return (
+        <span className="inline-block rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+          Not contacted
+        </span>
+      );
+    }
+    const labels: Record<string, { label: string; className: string }> = {
+      sent: { label: "Sent", className: "bg-blue-100 text-blue-800" },
+      opened: { label: "Opened", className: "bg-indigo-100 text-indigo-800" },
+      responded: { label: "Responded", className: "bg-green-100 text-green-800" },
+      flagged: { label: "Flagged", className: "bg-red-100 text-red-800" },
+    };
+    const info = labels[status] || { label: status, className: "bg-gray-100 text-gray-800" };
+    return (
+      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${info.className}`}>
+        {info.label}
       </span>
     );
   };
@@ -134,16 +220,49 @@ function SuppliersPage() {
               {suppliers.length} supplier{suppliers.length !== 1 ? "s" : ""} in your supply chain
             </p>
           </div>
-          <Link
-            to="/suppliers/upload"
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6" />
-            </svg>
-            Upload CSV
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              to="/suppliers/upload"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6" />
+              </svg>
+              Upload CSV
+            </Link>
+            <button
+              onClick={handleCreateCampaign}
+              disabled={selectedIds.size === 0 || creating}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+              </svg>
+              {creating ? "Sending..." : selectedIds.size > 0 ? `Send to ${selectedIds.size} supplier${selectedIds.size !== 1 ? "s" : ""}` : "Send Questionnaire"}
+            </button>
+          </div>
         </div>
+
+        {campaignError && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {campaignError}
+          </div>
+        )}
+
+        {campaignResult && (
+          <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-4 text-sm">
+            <p className="font-medium text-green-800">
+              Campaign sent: {campaignResult.sent} of {campaignResult.total} emails sent.
+            </p>
+            {campaignResult.errors.length > 0 && (
+              <ul className="mt-2 space-y-1 text-red-700">
+                {campaignResult.errors.map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {/* Filters */}
         {suppliers.length > 0 && (
@@ -215,21 +334,39 @@ function SuppliersPage() {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-gray-200 bg-gray-50">
                 <tr>
+                  <th className="w-10 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </th>
                   <th className="px-4 py-3 font-medium text-gray-600">Name</th>
                   <th className="px-4 py-3 font-medium text-gray-600">Contact Email</th>
                   <th className="px-4 py-3 font-medium text-gray-600">Country</th>
                   <th className="px-4 py-3 font-medium text-gray-600">Spend Category</th>
                   <th className="px-4 py-3 font-medium text-gray-600">Risk Level</th>
+                  <th className="px-4 py-3 font-medium text-gray-600">Campaign</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filtered.map((s) => (
                   <tr key={s.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(s.id)}
+                        onChange={() => toggleSelect(s.id)}
+                        className="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{s.name}</td>
                     <td className="px-4 py-3 text-gray-600">{s.contactEmail}</td>
                     <td className="px-4 py-3 text-gray-600">{s.country}</td>
                     <td className="px-4 py-3 text-gray-600">{s.spendCategory}</td>
                     <td className="px-4 py-3">{riskBadge(s.riskLevel)}</td>
+                    <td className="px-4 py-3">{campaignStatusBadge(s.campaignStatus)}</td>
                   </tr>
                 ))}
               </tbody>
