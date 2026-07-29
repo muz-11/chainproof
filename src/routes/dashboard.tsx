@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { verifySessionToken } from "~/auth";
@@ -138,28 +138,36 @@ function Dashboard() {
           />
         </div>
 
-        {/* Supplier section placeholder */}
-        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100">
-            <svg
-              className="h-6 w-6 text-indigo-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 6v12m6-6H6"
-              />
-            </svg>
-          </div>
-          <h2 className="mb-1 text-lg font-semibold">Upload your supplier list</h2>
-          <p className="mb-4 text-sm text-gray-600">
-            Import your suppliers via CSV to begin the due diligence process. Supplier
-            upload will be available in the next release.
-          </p>
+        {/* Supplier section */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Link
+            to="/suppliers/upload"
+            className="rounded-xl border border-gray-200 bg-white p-6 text-left hover:border-indigo-200 hover:shadow-sm transition"
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100">
+              <svg className="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6" />
+              </svg>
+            </div>
+            <h2 className="mb-1 text-lg font-semibold text-gray-900">Upload suppliers</h2>
+            <p className="text-sm text-gray-600">
+              Import your supplier list via CSV to begin the due diligence process.
+            </p>
+          </Link>
+          <Link
+            to="/suppliers"
+            className="rounded-xl border border-gray-200 bg-white p-6 text-left hover:border-indigo-200 hover:shadow-sm transition"
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100">
+              <svg className="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+            </div>
+            <h2 className="mb-1 text-lg font-semibold text-gray-900">View suppliers</h2>
+            <p className="text-sm text-gray-600">
+              Browse and filter your uploaded supplier list by country and risk level.
+            </p>
+          </Link>
         </div>
       </main>
     </div>
