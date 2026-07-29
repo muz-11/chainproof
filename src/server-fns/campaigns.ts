@@ -593,13 +593,19 @@ export const sendCampaignEmails = createServerFn({ method: "POST" })
             throw new Error(`Knock API error (${response.status}): ${errText}`);
           }
         } else {
-          // No Knock key configured — log and pretend it sent for dev/demo
+          // No Knock key configured — do NOT pretend the email went out.
+          // Marking a supplier "sent" without a real send would misreport who
+          // was actually contacted, undermining honest response-rate tracking.
+          // Log it and throw so this row is caught below and stays "not_sent".
           console.log(
-            `[DEV] Would send email to ${cs.contactEmail} (${cs.supplierName}): ${respondUrl}`,
+            `[NOT SENT — Knock not configured] Would send to ${cs.contactEmail} (${cs.supplierName}): ${respondUrl}`,
+          );
+          throw new Error(
+            "Email service not configured yet (missing KNOCK_API_KEY) — no email was sent.",
           );
         }
 
-        // Mark as sent
+        // Mark as sent (only reached when the Knock API call above actually succeeded)
         await db`
           UPDATE "CampaignSupplier"
           SET "status" = 'sent', "sentAt" = ${now}, "updatedAt" = ${now}
