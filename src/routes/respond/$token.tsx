@@ -50,6 +50,17 @@ export const Route = createFileRoute("/respond/$token")({
     return { ...csData, questionnaire, token };
   },
   component: RespondPage,
+  errorComponent: () => (
+    <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-6 text-center">
+      <div className="rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
+        <h1 className="mb-2 text-lg font-semibold text-gray-900">Link not valid</h1>
+        <p className="text-sm text-gray-600">
+          This questionnaire link is invalid or has expired. If you believe this is a
+          mistake, please contact the organization that sent it to you for a new link.
+        </p>
+      </div>
+    </div>
+  ),
 });
 
 function RespondPage() {
